@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "npm run build && npx --yes gh-pages@6 -d dist --dotfiles -m \"deploy: update GitHub Pages\""
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
