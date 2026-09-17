@@ -1,25 +1,53 @@
 import * as XLSX from 'xlsx'
 import dayjs from 'dayjs'
-import type { TableColumn, TableRow } from '../types/table'
+import type { ColumnType, TableColumn, TableRow } from '../types/table'
+import { isEmptyCell, parseDate, parseNumber } from './dataType'
 import { formatCellDisplay } from './filter'
 
 export type ExportFormat = 'xlsx' | 'csv' | 'txt'
 
-function buildRows(
+/**
+ * 按「字段设置」中的类型导出单元格，避免仍按导入时的原始形态写出。
+ */
+export function exportCellByType(
+  raw: unknown,
+  type: ColumnType,
+): string | number | boolean | null {
+  if (isEmptyCell(raw)) return null
+
+  switch (type) {
+    case 'number': {
+      const n = parseNumber(raw)
+      return n
+    }
+    case 'percent': {
+      const n = parseNumber(raw)
+      return n === null ? null : Number(n.toFixed(6))
+    }
+    case 'date': {
+      const d = parseDate(raw)
+      return d ? d.format('YYYY-MM-DD HH:mm:ss') : String(raw)
+    }
+    case 'boolean': {
+      if (typeof raw === 'boolean') return raw
+      const s = String(raw).trim().toLowerCase()
+      if (['true', '1', '是', 'yes', 'y'].includes(s)) return true
+      if (['false', '0', '否', 'no', 'n'].includes(s)) return false
+      return null
+    }
+    default:
+      return String(raw)
+  }
+}
+
+function buildTypedRows(
   rows: TableRow[],
   cols: TableColumn[],
 ): Record<string, string | number | boolean | null>[] {
   return rows.map((row) => {
     const obj: Record<string, string | number | boolean | null> = {}
     cols.forEach((col) => {
-      const raw = row[col.key]
-      if (col.type === 'percent' && typeof raw === 'number') {
-        obj[col.title] = Number(raw.toFixed(4))
-      } else if (raw === null || raw === undefined) {
-        obj[col.title] = ''
-      } else {
-        obj[col.title] = raw as string | number | boolean
-      }
+      obj[col.title] = exportCellByType(row[col.key], col.type)
     })
     return obj
   })
@@ -63,11 +91,10 @@ export function exportFilteredData(options: {
 
   const stamp = dayjs().format('YYYYMMDD_HHmmss')
   const base = fileName.replace(/\.(xlsx|xls|csv|txt)$/i, '')
-  const data = buildRows(rows, cols)
   const headers = cols.map((c) => c.title)
 
   if (format === 'txt') {
-    // 纯文本：制表符分隔，便于粘贴到记事本 / 飞书
+    // 文本：按字段类型的展示格式（百分比带 %、日期格式化等）
     const displayRows = rows.map((row) => {
       const obj: Record<string, string | number | boolean | null> = {}
       cols.forEach((col) => {
@@ -79,6 +106,8 @@ export function exportFilteredData(options: {
     return
   }
 
+  // Excel / CSV：按字段类型写出数值/日期/布尔，与字段设置一致
+  const data = buildTypedRows(rows, cols)
   const outName = `${base}_筛选结果_${stamp}.${format}`
   const sheet = XLSX.utils.json_to_sheet(data)
   const book = XLSX.utils.book_new()

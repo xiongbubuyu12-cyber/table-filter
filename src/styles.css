@@ -271,6 +271,10 @@ body {
   background: #f0f7ff !important;
 }
 
+.th-col-frozen {
+  box-shadow: 2px 0 0 #d6e4ff;
+}
+
 .col-selected-cell {
   box-shadow: inset 2px 0 0 #1677ff;
 }

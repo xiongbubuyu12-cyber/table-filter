@@ -479,9 +479,11 @@ export default function App() {
         fixed: 'left' as const,
         render: (_: unknown, __: TableRow, index: number) => (page - 1) * pageSize + index + 1,
       },
-      ...visible.map((col) => {
+      ...visible.map((col, visibleIndex) => {
         const inFilter = filteredFields.has(col.key)
         const width = defaultColWidth(col)
+        // 横向滚动时冻结「当前最左侧」数据列；拖到第一位的字段同样冻结
+        const frozenFirst = visibleIndex === 0
         return {
           title: (
             <ColumnHeader
@@ -503,8 +505,14 @@ export default function App() {
           key: col.key,
           width,
           ellipsis: true,
+          fixed: frozenFirst ? ('left' as const) : undefined,
           onHeaderCell: () => ({
-            className: selectedColKeys.includes(col.key) ? 'th-col-selected' : undefined,
+            className: [
+              selectedColKeys.includes(col.key) ? 'th-col-selected' : '',
+              frozenFirst ? 'th-col-frozen' : '',
+            ]
+              .filter(Boolean)
+              .join(' ') || undefined,
           }),
           render: (value: unknown) => {
             const text = formatCellDisplay(value, col.type)
@@ -829,7 +837,7 @@ export default function App() {
                   <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 12 }}>
                     {tableFullscreen
                       ? '全屏模式 · Esc 退出'
-                      : '点选列 / Shift 扩选 · Esc 取消 · 拖线框调列宽 · 长按拖动调顺序'}
+                      : '最左数据列横向冻结 · 点选/Shift/Esc · 拖线框调宽 · 长按调序'}
                   </span>
                 </Space>
               }
