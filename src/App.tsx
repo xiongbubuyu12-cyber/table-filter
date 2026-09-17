@@ -223,6 +223,20 @@ export default function App() {
     setDropTargetKey(null)
   }, [dataVersion])
 
+  // Esc 取消列选中
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (!selectedColKeys.length && !draggingKeys.length) return
+      setSelectedColKeys([])
+      setSelectAnchor(null)
+      setDraggingKeys([])
+      setDropTargetKey(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedColKeys.length, draggingKeys.length])
+
   // 列拖拽：全局 pointerup 落点
   useEffect(() => {
     if (!draggingKeys.length) return
@@ -370,6 +384,13 @@ export default function App() {
     setSelectedColKeys([colKey])
   }
 
+  const defaultColWidth = (col: TableColumn) =>
+    col.width ?? (col.type === 'string' ? 180 : 130)
+
+  const onColResize = (colKey: string, nextWidth: number) => {
+    setColumns(columns.map((c) => (c.key === colKey ? { ...c, width: nextWidth } : c)))
+  }
+
   const onLongPressStart = (colKey: string) => {
     const orderMap = new Map(sortedVisible(columns).map((c, i) => [c.key, i]))
     let block =
@@ -436,6 +457,7 @@ export default function App() {
       },
       ...visible.map((col) => {
         const inFilter = filteredFields.has(col.key)
+        const width = defaultColWidth(col)
         return {
           title: (
             <ColumnHeader
@@ -445,15 +467,17 @@ export default function App() {
               selected={selectedColKeys.includes(col.key)}
               dropTarget={dropTargetKey === col.key && draggingKeys.length > 0}
               dragging={draggingKeys.includes(col.key)}
+              currentWidth={width}
               onFilterClick={() => onHeaderClick(col.key)}
               onSelect={(e) => onColSelect(col.key, e)}
               onLongPressStart={onLongPressStart}
               onHoverWhileDrag={(k) => setDropTargetKey(k)}
+              onResize={onColResize}
             />
           ),
           dataIndex: col.key,
           key: col.key,
-          width: col.type === 'string' ? 180 : 130,
+          width,
           ellipsis: true,
           onHeaderCell: () => ({
             className: selectedColKeys.includes(col.key) ? 'th-col-selected' : undefined,
@@ -778,7 +802,7 @@ export default function App() {
                 <Space>
                   数据表格
                   <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 12 }}>
-                    点选列 / Shift 扩选线框 · 长按拖动调整顺序
+                    点选列 / Shift 扩选 · Esc 取消 · 拖线框调列宽 · 长按拖动调顺序
                   </span>
                 </Space>
               }

@@ -6,6 +6,8 @@ export interface TableColumn {
   type: ColumnType
   visible: boolean
   order: number
+  /** 列宽（px），拖拽线框调整后写入 */
+  width?: number
   /** 导入时自动识别的比率列（源值为 0~1 小数） */
   rateSource?: 'decimal' | 'percent'
   /** 计算列，不来自原始表 */
