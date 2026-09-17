@@ -28,6 +28,8 @@ import {
   DownloadOutlined,
   EditOutlined,
   FilterOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
   HistoryOutlined,
   PlusOutlined,
   QuestionCircleOutlined,
@@ -211,6 +213,10 @@ export default function App() {
   /** 长按拖拽中的列（单列或区间） */
   const [draggingKeys, setDraggingKeys] = useState<string[]>([])
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null)
+  const [tableFullscreen, setTableFullscreen] = useState(false)
+  const [viewportH, setViewportH] = useState(() =>
+    typeof window !== 'undefined' ? window.innerHeight : 800,
+  )
 
   // 数据版本变化时回第一页（引擎内部也会 reset draft）
   useEffect(() => {
@@ -223,19 +229,37 @@ export default function App() {
     setDropTargetKey(null)
   }, [dataVersion])
 
-  // Esc 取消列选中
+  // Esc：先取消列选中；无选中时若全屏则退出全屏
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (!selectedColKeys.length && !draggingKeys.length) return
-      setSelectedColKeys([])
-      setSelectAnchor(null)
-      setDraggingKeys([])
-      setDropTargetKey(null)
+      if (selectedColKeys.length || draggingKeys.length) {
+        setSelectedColKeys([])
+        setSelectAnchor(null)
+        setDraggingKeys([])
+        setDropTargetKey(null)
+        return
+      }
+      if (tableFullscreen) setTableFullscreen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedColKeys.length, draggingKeys.length])
+  }, [selectedColKeys.length, draggingKeys.length, tableFullscreen])
+
+  useEffect(() => {
+    const onResize = () => setViewportH(window.innerHeight)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    document.body.style.overflow = tableFullscreen ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [tableFullscreen])
+
+  const tableScrollY = tableFullscreen ? Math.max(320, viewportH - 168) : 520
 
   // 列拖拽：全局 pointerup 落点
   useEffect(() => {
@@ -798,16 +822,25 @@ export default function App() {
 
             <Card
               size="small"
+              className={`table-card${tableFullscreen ? ' is-fullscreen' : ''}`}
               title={
                 <Space>
                   数据表格
                   <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 12 }}>
-                    点选列 / Shift 扩选 · Esc 取消 · 拖线框调列宽 · 长按拖动调顺序
+                    {tableFullscreen
+                      ? '全屏模式 · Esc 退出'
+                      : '点选列 / Shift 扩选 · Esc 取消 · 拖线框调列宽 · 长按拖动调顺序'}
                   </span>
                 </Space>
               }
               extra={
                 <Space wrap>
+                  <Button
+                    icon={tableFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                    onClick={() => setTableFullscreen((v) => !v)}
+                  >
+                    {tableFullscreen ? '退出全屏' : '全屏'}
+                  </Button>
                   <Button
                     icon={<SettingOutlined />}
                     onClick={() => {
@@ -829,7 +862,7 @@ export default function App() {
                 columns={tableColumns}
                 dataSource={pageRows}
                 loading={false}
-                scroll={{ x: Math.max(900, tableColumns.length * 140), y: 520 }}
+                scroll={{ x: Math.max(900, tableColumns.length * 140), y: tableScrollY }}
                 pagination={{
                   current: page,
                   pageSize,
