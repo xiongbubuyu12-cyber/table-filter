@@ -262,13 +262,19 @@ export function formatCellDisplay(value: unknown, type: ColumnType): string {
     return `${Number(value.toFixed(2))}%`
   }
   if (type === 'number' && typeof value === 'number') {
-    return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)))
+    if (Number.isInteger(value) || Math.abs(value) >= 1e15) {
+      return value.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 0 })
+    }
+    return String(Number(value.toFixed(4)))
   }
   if (type === 'date') {
     const d = parseDate(value)
     return d ? d.format('YYYY-MM-DD HH:mm') : String(value)
   }
   if (type === 'boolean') return value ? '是' : '否'
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 20 })
+  }
   return String(value)
 }
 

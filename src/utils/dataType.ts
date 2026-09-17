@@ -69,6 +69,43 @@ export function looksLikePostedTimeHeader(title: string): boolean {
   return /time posted|发布时间|素材时间|posted/i.test(title)
 }
 
+/** Post ID / 编码等长标识，必须按文本处理，否则会丢精度并变成科学计数法 */
+export function looksLikeIdHeader(title: string): boolean {
+  const t = title.trim().toLowerCase()
+  if (!t) return false
+  return (
+    /post\s*id|item\s*id|video\s*id|creative\s*id|素材.?id|创意.?id|视频.?id/i.test(t) ||
+    /(^|[^a-z])id([^a-z]|$)/i.test(t) ||
+    /编码|编号|单号|订单号|工单号/.test(title)
+  )
+}
+
+/** 把数字稳定写成十进制文本，避免 String(1e18) → 科学计数法 */
+export function toPlainText(value: unknown): string {
+  if (typeof value === 'bigint') return value.toString()
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (Object.is(value, -0)) return '0'
+    if (Number.isInteger(value) || Math.abs(value) >= 1e15) {
+      return value.toLocaleString('en-US', { useGrouping: false, maximumFractionDigits: 0 })
+    }
+    return String(value)
+  }
+  return String(value)
+}
+
+function looksLikeLongIdValues(values: unknown[]): boolean {
+  const nonEmpty = values.filter((v) => !isEmptyCell(v))
+  if (!nonEmpty.length) return false
+  const hit = nonEmpty.filter((v) => {
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return Math.abs(v) >= 1e14 && Number.isInteger(v)
+    }
+    const s = String(v).trim().replace(/,/g, '')
+    return /^\d{15,}$/.test(s) || /^\d+(\.\d+)?e\+\d+$/i.test(s)
+  }).length
+  return hit >= nonEmpty.length * 0.8
+}
+
 export function normalizeCell(
   value: unknown,
   type: ColumnType,
@@ -102,7 +139,7 @@ export function normalizeCell(
     return d ? d.format('YYYY-MM-DD HH:mm:ss') : String(value)
   }
 
-  return String(value)
+  return toPlainText(value)
 }
 
 export function detectColumnType(title: string, values: unknown[]): {
@@ -111,6 +148,11 @@ export function detectColumnType(title: string, values: unknown[]): {
 } {
   const nonEmpty = values.filter((v) => !isEmptyCell(v))
   if (nonEmpty.length === 0) return { type: 'string' }
+
+  // ID / 长整型标识优先文本，避免被当成 number
+  if (looksLikeIdHeader(title) || looksLikeLongIdValues(nonEmpty)) {
+    return { type: 'string' }
+  }
 
   if (looksLikeRateHeader(title)) {
     const nums = nonEmpty.map(parseNumber).filter((n): n is number => n !== null)
