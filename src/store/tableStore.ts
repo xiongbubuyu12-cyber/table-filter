@@ -153,7 +153,14 @@ export const useTableStore = create<TableState>()(
         }
       },
 
-      setColumns: (columns) => set({ columns }),
+      setColumns: (columns) => {
+        const name = get().currentSheet
+        const sheetCache = { ...get().sheetCache }
+        if (name && sheetCache[name]) {
+          sheetCache[name] = { ...sheetCache[name], columns: columns.map((c) => ({ ...c })) }
+        }
+        set({ columns, sheetCache })
+      },
 
       saveTemplate: (name, filters, note, updateId) => {
         const now = new Date().toISOString()

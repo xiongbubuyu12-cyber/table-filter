@@ -173,6 +173,48 @@ body {
   font-weight: 600;
 }
 
+.col-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 2px 4px;
+  border: 1.5px solid transparent;
+  border-radius: 4px;
+  user-select: none;
+  cursor: grab;
+}
+
+.col-head.is-selected {
+  border-color: #1677ff;
+  background: #e6f4ff;
+  box-shadow: inset 0 0 0 1px #91caff;
+}
+
+.col-head.is-drop-target {
+  border-color: #fa8c16;
+  background: #fff7e6;
+}
+
+.col-head.is-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.col-head-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.th-col-selected {
+  background: #f0f7ff !important;
+}
+
+.col-selected-cell {
+  box-shadow: inset 2px 0 0 #1677ff;
+}
+
 .cell-ellipsis {
   display: inline-block;
   max-width: 240px;

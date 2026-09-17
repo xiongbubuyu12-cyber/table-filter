@@ -40,10 +40,12 @@ import {
 import dayjs from 'dayjs'
 import { useTableStore } from './store/tableStore'
 import { formatCellDisplay, isConditionActive, operatorsForType } from './utils/filter'
-import { exportFilteredData } from './utils/export'
+import { exportFilteredData, type ExportFormat } from './utils/export'
+import { moveVisibleBlock, sortedVisible, visibleRangeKeys } from './utils/columnOrder'
 import { BUILTIN_PRESET_NAME, buildLowSupportPreset, LOW_SUPPORT_RULE_TEXT } from './utils/presets'
 import { useFilterEngine } from './hooks/useFilterEngine'
 import CellPeekFrame, { type PeekPayload } from './components/CellPeekFrame'
+import ColumnHeader from './components/ColumnHeader'
 import type { ColumnType, FilterOperator, TableColumn, TableRow } from './types/table'
 
 const TYPE_OPTIONS: { value: ColumnType; label: string }[] = [
@@ -199,17 +201,58 @@ export default function App() {
   const [saveNote, setSaveNote] = useState('')
   /** 正在编辑的模板 id；有值时「保存模板」会写回该模板 */
   const [editingTemplateId, setEditingTemplateId] = useState<string | undefined>()
-  const [exportFormat, setExportFormat] = useState<'xlsx' | 'csv'>('xlsx')
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [exportKeys, setExportKeys] = useState<string[]>([])
   const [draftColumns, setDraftColumns] = useState<TableColumn[]>([])
   const [peek, setPeek] = useState<PeekPayload | null>(null)
+  /** 线框选中的可见列 */
+  const [selectedColKeys, setSelectedColKeys] = useState<string[]>([])
+  const [selectAnchor, setSelectAnchor] = useState<string | null>(null)
+  /** 长按拖拽中的列（单列或区间） */
+  const [draggingKeys, setDraggingKeys] = useState<string[]>([])
+  const [dropTargetKey, setDropTargetKey] = useState<string | null>(null)
 
   // 数据版本变化时回第一页（引擎内部也会 reset draft）
   useEffect(() => {
     setPage(1)
     setPeek(null)
     setEditingTemplateId(undefined)
+    setSelectedColKeys([])
+    setSelectAnchor(null)
+    setDraggingKeys([])
+    setDropTargetKey(null)
   }, [dataVersion])
+
+  // 列拖拽：全局 pointerup 落点
+  useEffect(() => {
+    if (!draggingKeys.length) return
+    const onUp = (e: PointerEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+      const head = el?.closest?.('[data-col-key]') as HTMLElement | null
+      const targetKey = head?.dataset?.colKey ?? dropTargetKey
+      if (targetKey && !draggingKeys.includes(targetKey)) {
+        setColumns(moveVisibleBlock(columns, draggingKeys, targetKey))
+        message.success(
+          draggingKeys.length > 1 ? `已移动 ${draggingKeys.length} 列` : '已调整列顺序',
+        )
+      }
+      setDraggingKeys([])
+      setDropTargetKey(null)
+    }
+    const onMove = (e: PointerEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+      const head = el?.closest?.('[data-col-key]') as HTMLElement | null
+      const key = head?.dataset?.colKey
+      if (key) setDropTargetKey(key)
+    }
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointermove', onMove)
+    return () => {
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointermove', onMove)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingKeys, dropTargetKey, columns])
 
   const activeCount = useMemo(
     () => engine.draft.groups.reduce((n, g) => n + g.conditions.filter(isConditionActive).length, 0),
@@ -291,7 +334,12 @@ export default function App() {
   }
 
   const openExport = () => {
-    setExportKeys(columns.filter((c) => c.visible).map((c) => c.key))
+    // 默认导出当前列表展示的可见字段（字段设置后的结果）
+    const visibleKeys = [...columns]
+      .filter((c) => c.visible)
+      .sort((a, b) => a.order - b.order)
+      .map((c) => c.key)
+    setExportKeys(visibleKeys)
     setExportFormat('xlsx')
     setExportOpen(true)
   }
@@ -309,8 +357,38 @@ export default function App() {
       rows: matched,
       selectedKeys: exportKeys,
     })
-    message.success(`已导出 ${matched.length.toLocaleString()} 条`)
+    message.success(`已导出 ${matched.length.toLocaleString()} 条（${exportFormat}）`)
     setExportOpen(false)
+  }
+
+  const onColSelect = (colKey: string, e: React.MouseEvent) => {
+    if (e.shiftKey && selectAnchor) {
+      setSelectedColKeys(visibleRangeKeys(columns, selectAnchor, colKey))
+      return
+    }
+    setSelectAnchor(colKey)
+    setSelectedColKeys([colKey])
+  }
+
+  const onLongPressStart = (colKey: string) => {
+    const orderMap = new Map(sortedVisible(columns).map((c, i) => [c.key, i]))
+    let block =
+      selectedColKeys.includes(colKey) && selectedColKeys.length > 0
+        ? [...selectedColKeys]
+        : [colKey]
+    block.sort((a, b) => (orderMap.get(a) ?? 0) - (orderMap.get(b) ?? 0))
+    if (!selectedColKeys.includes(colKey)) {
+      setSelectedColKeys(block)
+      setSelectAnchor(colKey)
+    }
+    setDraggingKeys(block)
+    setDropTargetKey(null)
+    message.open({
+      type: 'info',
+      content: block.length > 1 ? `拖动 ${block.length} 列到目标位置后松开` : '拖动到目标列位置后松开',
+      duration: 1.2,
+      key: 'col-drag',
+    })
   }
 
   const editingTemplate = editingTemplateId
@@ -360,29 +438,32 @@ export default function App() {
         const inFilter = filteredFields.has(col.key)
         return {
           title: (
-            <button
-              type="button"
-              className={`th-filter-btn${inFilter ? ' is-active' : ''}`}
-              title="点击表头加入当前规则组"
-              onClick={(e) => {
-                e.stopPropagation()
-                onHeaderClick(col.key)
-              }}
-            >
-              <FilterOutlined />
-              <span>{col.title}</span>
-            </button>
+            <ColumnHeader
+              title={col.title}
+              colKey={col.key}
+              inFilter={inFilter}
+              selected={selectedColKeys.includes(col.key)}
+              dropTarget={dropTargetKey === col.key && draggingKeys.length > 0}
+              dragging={draggingKeys.includes(col.key)}
+              onFilterClick={() => onHeaderClick(col.key)}
+              onSelect={(e) => onColSelect(col.key, e)}
+              onLongPressStart={onLongPressStart}
+              onHoverWhileDrag={(k) => setDropTargetKey(k)}
+            />
           ),
           dataIndex: col.key,
           key: col.key,
           width: col.type === 'string' ? 180 : 130,
           ellipsis: true,
+          onHeaderCell: () => ({
+            className: selectedColKeys.includes(col.key) ? 'th-col-selected' : undefined,
+          }),
           render: (value: unknown) => {
             const text = formatCellDisplay(value, col.type)
             const long = text.length > 18 || col.type === 'string'
             return (
               <span
-                className={`cell-ellipsis${long ? ' is-clip' : ''}`}
+                className={`cell-ellipsis${long ? ' is-clip' : ''}${selectedColKeys.includes(col.key) ? ' col-selected-cell' : ''}`}
                 onClick={(e) => {
                   if (long) openCellPeek(col.title, text, e)
                 }}
@@ -396,7 +477,7 @@ export default function App() {
       }),
     ]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns, page, pageSize, filteredFields])
+  }, [columns, page, pageSize, filteredFields, selectedColKeys, draggingKeys, dropTargetKey])
 
   const hasData = rows.length > 0
 
@@ -693,7 +774,14 @@ export default function App() {
 
             <Card
               size="small"
-              title="数据表格"
+              title={
+                <Space>
+                  数据表格
+                  <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 12 }}>
+                    点选列 / Shift 扩选线框 · 长按拖动调整顺序
+                  </span>
+                </Space>
+              }
               extra={
                 <Space wrap>
                   <Button
@@ -800,6 +888,7 @@ export default function App() {
       <Modal title="导出数据" open={exportOpen} onCancel={() => setExportOpen(false)} onOk={doExport} okText="导出">
         <p>
           导出当前筛选结果 <strong>{engine.total.toLocaleString()}</strong> 条
+          <span style={{ color: '#6b7280', marginLeft: 8 }}>默认勾选列表当前可见字段</span>
         </p>
         <Radio.Group
           value={exportFormat}
@@ -808,12 +897,41 @@ export default function App() {
         >
           <Radio value="xlsx">Excel</Radio>
           <Radio value="csv">CSV</Radio>
+          <Radio value="txt">文本 (.txt)</Radio>
         </Radio.Group>
+        <div style={{ marginBottom: 8 }}>
+          <Space>
+            <Button
+              size="small"
+              onClick={() =>
+                setExportKeys(
+                  [...columns]
+                    .filter((c) => c.visible)
+                    .sort((a, b) => a.order - b.order)
+                    .map((c) => c.key),
+                )
+              }
+            >
+              仅可见字段
+            </Button>
+            <Button size="small" onClick={() => setExportKeys(columns.map((c) => c.key))}>
+              全部字段
+            </Button>
+            <Button size="small" onClick={() => setExportKeys([])}>
+              取消全选
+            </Button>
+          </Space>
+        </div>
         <Checkbox.Group
           style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}
           value={exportKeys}
           onChange={(v) => setExportKeys(v as string[])}
-          options={columns.map((c) => ({ label: c.title, value: c.key }))}
+          options={[...columns]
+            .sort((a, b) => a.order - b.order)
+            .map((c) => ({
+              label: `${c.title}${c.visible ? '' : '（隐藏）'}`,
+              value: c.key,
+            }))}
         />
       </Modal>
 
